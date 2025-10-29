@@ -148,11 +148,28 @@ class Report(pg.sprite.Sprite):
         if self.rect.top > HEIGHT:
             self.kill()
 
+
+class Boss(pg.sprite.Sprite):
+    """
+    ボスに関するクラス
+    """
+    def __init__(self,):
+        super().__init__()
+        self.image = pg.image.load("img/enemy.png")#boss(kari)
+        self.rect = self.image.get_rect(center = (WIDTH / 2, HEIGHT == max))
+        
+        
+        
+
+
+
+
 # --- グループ定義 ---
 all_sprites = pg.sprite.Group()
 pencils = pg.sprite.Group()
 enemies = pg.sprite.Group()
 enemy_reports = pg.sprite.Group()
+bosses = False
 
 player = Player()
 all_sprites.add(player)   # ← ここは必ず追加しておく（描画されるように）
@@ -177,6 +194,14 @@ while running:
             pencil = Pencil(player.rect.centerx, player.rect.top)
             all_sprites.add(pencil)
             pencils.add(pencil)
+
+
+    #ボスを追加
+    if score >= 1 and not bosses:
+        boss = Boss()
+        all_sprites.add(boss)
+        bosses = True
+
 
     # まとめて更新（Player.update は内部でキー取得している）
     all_sprites.update()
