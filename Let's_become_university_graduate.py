@@ -12,6 +12,7 @@ screen = pg.display.set_mode((WIDTH, HEIGHT))
 pg.display.set_caption("Let's become university graduate")
 clock = pg.time.Clock()
 font = pg.font.Font(None, 50)
+font_small = pg.font.Font(None, 36)
 
 # --- 画像読み込み補助 ---
 def load_image(path, required=True):
@@ -33,6 +34,7 @@ player_path = os.path.join(img_dir, "player.png")
 enemy_path = os.path.join(img_dir, "enemy.png")
 pencil_path = os.path.join(img_dir, "pencil.png")
 report_path = os.path.join(img_dir, "report.png")
+lunch_path = os.path.join(img_dir, "lunch.png") #追加C0A24151
 
 # --- 画像読み込み（例外が起きたら原因を表示） ---
 try:
@@ -41,6 +43,7 @@ try:
     enemy_img = load_image(enemy_path)
     pencil_img = load_image(pencil_path)
     report_img = load_image(report_path)
+    lunch_img = load_image(lunch_path, required=False) #追加C0A24151
 except FileNotFoundError as e:
     print(e)
     print("ex5/img/ フォルダに必要な画像を入れて、ファイル名が正しいか確認してください。")
@@ -57,6 +60,13 @@ enemy_img  = pg.transform.scale(enemy_img,  (60, 60))
 pencil_img = pg.transform.scale(pencil_img, (24, 48))
 report_img = pg.transform.scale(report_img, (24, 36))
 
+# 学食ランチ（無ければフォールバックで金色の四角）#追加C0A24151
+if lunch_img is None:
+    lunch_img = pg.Surface((28, 28), pg.SRCALPHA)
+    pg.draw.rect(lunch_img, (255, 215, 0), lunch_img.get_rect(), border_radius=6)
+else:
+    lunch_img = pg.transform.scale(lunch_img, (28, 28))
+
 # --- クラス定義（Player.update は引数なし） ---
 class Player(pg.sprite.Sprite):
     """主人公キャラクターを表すクラス。矢印キーで操作可能。"""
@@ -65,8 +75,14 @@ class Player(pg.sprite.Sprite):
         """Player インスタンスを初期化する。"""
         super().__init__()
         self.image = player_img
+        self.base_image = player_img
+        self.image = self.base_image.copy()
         self.rect = self.image.get_rect(center=(WIDTH//2, HEIGHT-60))
         self.speed = 6
+        # --- HP & 無敵 --- #追加C0A24151
+        self.max_hp = 3
+        self.hp = self.max_hp
+        self.inv_timer = 0  # 被弾後の無敵フレーム
 
 
     def update(self):
@@ -83,6 +99,20 @@ class Player(pg.sprite.Sprite):
             self.rect.y += self.speed
         # 画面内に留める
         self.rect.clamp_ip(screen.get_rect())
+        # 無敵時間のカウントダウン #追加C0A24151
+        if self.inv_timer > 0:
+            self.inv_timer -= 1
+        # 被弾中の点滅 #追加C0A24151
+        if self.inv_timer > 0:
+            # 5フレ周期で明滅（80↔255）
+            if (self.inv_timer // 5) % 2 == 0:
+                self.image.set_alpha(90)
+            else:
+                self.image.set_alpha(255)
+        else:
+            # 通常時は不透明
+            self.image.set_alpha(255)
+
 
 class Pencil(pg.sprite.Sprite):
     """プレイヤーが発射する「えんぴつ」弾を表すクラス。"""
@@ -149,11 +179,28 @@ class Report(pg.sprite.Sprite):
         self.rect.y += self.speed
         if self.rect.top > HEIGHT:
             self.kill()
+
+class Lunch(pg.sprite.Sprite): #追加C0A24151
+    """学食ランチ（回復アイテム）。取得でHP+1（上限あり）。"""
+    def __init__(self, x=None, y=None):
+        super().__init__()
+        self.image = lunch_img
+        self.rect = self.image.get_rect()
+        self.rect.centerx = x if x is not None else random.randint(40, WIDTH - 40)
+        self.rect.y = y if y is not None else random.randint(-180, -60)
+        self.speed = random.randint(2, 3)
+
+    def update(self):
+        self.rect.y += self.speed
+        if self.rect.top > HEIGHT:
+            self.kill()
+
 # --- グループ定義 ---
 all_sprites = pg.sprite.Group()
 pencils = pg.sprite.Group()
 enemies = pg.sprite.Group()
 enemy_reports = pg.sprite.Group()
+lunches = pg.sprite.Group() #追加C0A24151
 
 player = Player()
 all_sprites.add(player)   # ← ここは必ず追加しておく（描画されるように）
@@ -172,6 +219,13 @@ invincible_end_time = 0
 INVINCIBLE_DURATION: int
 INVINCIBLE_DURATION = 10000
 start = pg.time.get_ticks()
+
+#追加C0A24151
+pickup_msg = ""         # 取得メッセージ 
+pickup_timer = 0        # メッセージ表示フレーム
+# 学食ランチの出現タイミング（10〜20秒に1回くらい）
+lunch_spawn_timer = random.randint(300, 1000)  # 60fps前提
+
 # --- メインループ ---
 running = True
 while running:
@@ -189,6 +243,14 @@ while running:
             if invincible == False:
                 invincible = True
                 start = pg.time.get_ticks()
+    
+    # --- 学食ランチの出現 --- #追加C0A24151
+    lunch_spawn_timer -= 1
+    if lunch_spawn_timer <= 0:
+        l = Lunch()
+        lunches.add(l)
+        all_sprites.add(l)
+        lunch_spawn_timer = random.randint(600, 1200)
 
     current = pg.time.get_ticks()
     elapsed = current - start
@@ -212,11 +274,46 @@ while running:
                 invincible = False
         elif invincible == False:
             running = False # 無敵モード解除状態で敵に当たるとゲームオーバー
+
+    #追加C0A24151
+    # 衝突判定：敵の弾とプレイヤー（HP制＋無敵時間）
+    if pg.sprite.spritecollideany(player, enemy_reports):
+        if player.inv_timer == 0:
+            player.hp -= 1
+            player.inv_timer = 60  # 1秒間無敵（60fps）
+            if player.hp <= 0:
+                running = False  # ゲームオーバー
+    
+    # 衝突判定：プレイヤーと学食ランチ（回復）
+    got_list = pg.sprite.spritecollide(player, lunches, dokill=True)
+    if got_list:
+        before = player.hp
+        player.hp = min(player.max_hp, player.hp + 1)
+        if player.hp > before:
+            pickup_msg = "🍛 元気回復！HP+1"
+        else:
+            pickup_msg = "🍛 お腹いっぱい！（上限）"
+        pickup_timer = 60  # 1秒表示
+
     # 描画
     screen.blit(background, (0, 0))
     all_sprites.draw(screen)
+
+    # スコア
     score_text = font.render(f"単位: {score}", True, (255, 255, 255))
     screen.blit(score_text, (10, 10))
+
+    #追加C0A24151
+    # HP表示（ハート）：例 ♥♥♡
+    hearts = "♥" * player.hp + "♡" * (player.max_hp - player.hp)
+    hp_text = font.render(f"HP: {hearts}", True, (255, 160, 160))
+    screen.blit(hp_text, (10, 60))
+    # 取得メッセージ
+    if pickup_timer > 0:
+        msg_surf = font_small.render(pickup_msg, True, (255, 255, 0))
+        screen.blit(msg_surf, (WIDTH//2 - msg_surf.get_width()//2, 16))
+        pickup_timer -= 1
+    
     pg.display.flip()
 
 # --- ゲームオーバー画面 ---
